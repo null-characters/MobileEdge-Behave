@@ -1,0 +1,16 @@
+# 工作流规范（本地使用，不提交）
+docs/standards/
+
+# IDE
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+
+# Android
+build/
+.gradle/
+local.properties
+*.apk
+*.aab
