@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">行为监测</string>
+    <string name="placeholder_message">项目已创建，待开发核心功能</string>
+
+    <!-- 通知渠道 -->
+    <string name="channel_monitoring">监测服务</string>
+    <string name="channel_monitoring_description">持续监测状态通知</string>
+
+    <!-- 状态 -->
+    <string name="status_present">在岗</string>
+    <string name="status_absent">离岗</string>
+    <string name="status_unknown">未知</string>
+
+    <!-- 统计 -->
+    <string name="stats_present_time">在岗时长</string>
+    <string name="stats_absent_time">离岗时长</string>
+    <string name="stats_absent_count">离岗次数</string>
+
+    <!-- 操作 -->
+    <string name="action_start">开始监测</string>
+    <string name="action_stop">停止监测</string>
+    <string name="action_export">导出数据</string>
+</resources>

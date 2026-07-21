@@ -6,6 +6,7 @@
 |------|------|----------|
 | V1.0 | 2026-07-21 | 初稿 |
 | V1.1 | 2026-07-21 | 根据 Karpathy Guidelines 审查优化：移除推测性设计、合并过度拆分任务、明确测试要点 |
+| V1.2 | 2026-07-21 | T-01 已完成 |
 
 ---
 
@@ -15,7 +16,7 @@
 
 | 编号 | 任务描述 | 影响模块 | 依赖 | 测试要点 | 状态 |
 |------|----------|----------|------|----------|------|
-| T-01 | 创建 Android 项目，配置基础依赖 | 项目根目录 | - | 1. 项目编译通过<br>2. 包含 Kotlin/Compose/CameraX/TFLite/Room 依赖<br>3. minSdk=23, targetSdk=35 | 待开始 |
+| T-01 | 创建 Android 项目，配置基础依赖 | 项目根目录 | - | 1. 项目编译通过<br>2. 包含 Kotlin/Compose/CameraX/TFLite/Room 依赖<br>3. minSdk=23, targetSdk=35 | ✅ 已完成 |
 | T-02 | 搭建 MVVM 架构骨架 | 全局 | T-01 | 1. 创建包结构：data/domain/presentation/service<br>2. 创建 Application 类<br>3. 编译通过，无警告 | 待开始 |
 | T-03 | 实现 CameraX 视频帧采集（固定 5fps） | Data/CameraX | T-02 | 1. 能获取视频帧，帧率稳定在 5fps<br>2. ImageAnalysis 配置正确<br>3. 帧能正确转换为 Bitmap | 待开始 |
 | T-04 | 集成 EfficientDet-Lite0 模型，实现 NNAPI 推理 | Data/TFLite | T-02 | 1. 模型文件加载成功<br>2. NNAPI delegate 配置成功<br>3. 推理延迟 < 30ms（测量 10 次取平均）<br>4. 输入 320x320 Bitmap，输出检测框数组 | 待开始 |
