@@ -137,11 +137,19 @@ class MonitorService : android.app.Service() {
         // 重置状态机
         stateMachine.reset()
 
-        // 同步清除历史数据，必须在启动相机前完成，避免竞态
+        // 不再清除历史数据，保留数据库记录
+        // 记录"开始监测"事件（从 UNKNOWN 切换到监测状态）
         serviceScope.launch(Dispatchers.IO) {
-            stateEventRepository.clearAll()
+            stateEventRepository.saveEvent(
+                StateEvent(
+                    timestamp = System.currentTimeMillis(),
+                    fromState = MonitorState.UNKNOWN,
+                    toState = MonitorState.UNKNOWN,
+                    confidence = 0f
+                )
+            )
 
-            // 清除完成后，在主线程启动相机
+            // 插入完成后，在主线程启动相机
             withContext(Dispatchers.Main) {
                 startCameraAndMonitoring()
             }
@@ -226,6 +234,20 @@ class MonitorService : android.app.Service() {
     }
 
     private fun stopMonitoring() {
+        // 记录"停止监测"事件
+        val stopTime = System.currentTimeMillis()
+        val currentState = _serviceState.value.currentState
+        serviceScope.launch(Dispatchers.IO) {
+            stateEventRepository.saveEvent(
+                StateEvent(
+                    timestamp = stopTime,
+                    fromState = currentState,
+                    toState = MonitorState.UNKNOWN,
+                    confidence = 0f
+                )
+            )
+        }
+
         // 先取消协程，等待真正停止后再释放资源
         val job = monitoringJob
         monitoringJob = null
