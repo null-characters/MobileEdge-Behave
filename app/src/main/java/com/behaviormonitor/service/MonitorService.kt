@@ -123,13 +123,21 @@ class MonitorService : android.app.Service() {
 
         // 重置状态机
         stateMachine.reset()
+
+        // 同步清除历史数据，必须在启动相机前完成，避免竞态
         serviceScope.launch(Dispatchers.IO) {
             stateEventRepository.clearAll()
-        }
 
+            // 清除完成后，在主线程启动相机
+            withContext(Dispatchers.Main) {
+                startCameraAndMonitoring()
+            }
+        }
+    }
+
+    private fun startCameraAndMonitoring() {
         // 启动相机（Service 无 LifecycleOwner，使用独立方法）
         cameraManager.startCameraWithoutLifecycle(fps = 5)
-
         _serviceState.value = MonitorServiceState(
             isMonitoring = true,
             currentState = MonitorState.UNKNOWN
@@ -196,14 +204,38 @@ class MonitorService : android.app.Service() {
     }
 
     private fun stopMonitoring() {
-        monitoringJob?.cancel()
+        // 先取消协程，等待真正停止后再释放资源
+        val job = monitoringJob
         monitoringJob = null
         summaryJob?.cancel()
         summaryJob = null
-        cameraManager.stopCamera()
-        cameraManager.release()
-        personDetector.release()
+
+        if (job != null) {
+            // 在 IO 线程等待协程结束，避免阻塞主线程
+            serviceScope.launch {
+                job.cancel()
+                job.join() // 等待协程完全停止
+                releaseResources()
+            }
+        } else {
+            releaseResources()
+        }
+    }
+
+    private fun releaseResources() {
+        try {
+            cameraManager.stopCamera()
+            cameraManager.release()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error stopping camera", e)
+        }
+        try {
+            personDetector.release()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error releasing detector", e)
+        }
         releaseWakeLock()
+        stopForeground(STOP_FOREGROUND_REMOVE)
         _serviceState.value = MonitorServiceState()
     }
 

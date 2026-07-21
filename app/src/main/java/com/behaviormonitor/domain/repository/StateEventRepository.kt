@@ -23,4 +23,9 @@ interface StateEventRepository {
     fun getAllEvents(): Flow<List<StateEvent>>
 
     suspend fun clearAll()
+
+    /**
+     * 获取指定日期的事件（非 Flow，用于导出）
+     */
+    suspend fun getEventsByDateOnce(date: String): List<StateEvent>
 }

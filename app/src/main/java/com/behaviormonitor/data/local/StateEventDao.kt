@@ -20,6 +20,9 @@ interface StateEventDao {
     @Query("SELECT * FROM state_events ORDER BY timestamp ASC")
     fun queryAll(): Flow<List<StateEventEntity>>
 
+    @Query("SELECT * FROM state_events WHERE date(timestamp / 1000, 'unixepoch') = :date ORDER BY timestamp ASC")
+    suspend fun getByDate(date: String): List<StateEventEntity>
+
     @Query("DELETE FROM state_events")
     suspend fun deleteAll()
 }

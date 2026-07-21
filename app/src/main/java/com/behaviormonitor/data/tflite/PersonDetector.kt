@@ -26,6 +26,7 @@ class PersonDetector(private val context: Context) {
     private var nnapiDelegate: NnApiDelegate? = null
     private var isInitialized = false
     private var isWarmedUp = false
+    private val inferenceLock = Object()  // 保护推理/释放的互斥锁
     
     // 复用输出缓冲区，避免重复创建
     private lateinit var outputBoxes: Array<Array<FloatArray>>
@@ -95,9 +96,11 @@ class PersonDetector(private val context: Context) {
      * @return 检测结果列表
      */
     fun detect(bitmap: Bitmap): DetectionResult {
-        if (!isInitialized) {
-            Log.w(TAG, "Detector not initialized")
-            return DetectionResult(emptyList(), 0L)
+        synchronized(inferenceLock) {
+            if (!isInitialized || interpreter == null) {
+                Log.w(TAG, "Detector not initialized or already released")
+                return DetectionResult(emptyList(), 0L)
+            }
         }
         
         var resizedBitmap: Bitmap? = null
@@ -108,9 +111,12 @@ class PersonDetector(private val context: Context) {
             // 2. 转换为输入张量（UINT8 格式，复用缓冲区）
             fillInputBuffer(resizedBitmap)
             
-            // 3. 运行推理（仅测量推理时间，复用输出缓冲区）
+            // 3. 运行推理（加锁防止释放时竞态）
             val startTime = System.currentTimeMillis()
-            interpreter?.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
+            synchronized(inferenceLock) {
+                interpreter?.runForMultipleInputsOutputs(arrayOf(inputBuffer), outputs)
+                    ?: return DetectionResult(emptyList(), 0L)
+            }
             val inferenceTime = System.currentTimeMillis() - startTime
             
             // 4. 解析结果
@@ -163,12 +169,14 @@ class PersonDetector(private val context: Context) {
      * 释放资源
      */
     fun release() {
-        interpreter?.close()
-        nnapiDelegate?.close()
-        interpreter = null
-        nnapiDelegate = null
-        isInitialized = false
-        Log.d(TAG, "Detector released")
+        synchronized(inferenceLock) {
+            interpreter?.close()
+            nnapiDelegate?.close()
+            interpreter = null
+            nnapiDelegate = null
+            isInitialized = false
+            Log.d(TAG, "Detector released")
+        }
     }
     
     /**

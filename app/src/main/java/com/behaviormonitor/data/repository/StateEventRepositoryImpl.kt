@@ -33,6 +33,10 @@ class StateEventRepositoryImpl(
         }
     }
 
+    override suspend fun getEventsByDateOnce(date: String): List<StateEvent> {
+        return dao.getByDate(date).map { it.toDomain() }
+    }
+
     override suspend fun clearAll() {
         dao.deleteAll()
     }

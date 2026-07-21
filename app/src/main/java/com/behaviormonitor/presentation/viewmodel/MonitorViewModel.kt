@@ -3,8 +3,12 @@ package com.behaviormonitor.presentation.viewmodel
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.behaviormonitor.data.export.CsvExporter
+import com.behaviormonitor.data.local.AppDatabase
+import com.behaviormonitor.data.repository.StateEventRepositoryImpl
 import com.behaviormonitor.domain.model.DailySummary
 import com.behaviormonitor.domain.model.MonitorState
 import com.behaviormonitor.service.MonitorService
@@ -13,7 +17,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 /**
  * 监测 ViewModel
@@ -28,6 +35,7 @@ class MonitorViewModel : ViewModel() {
     val previewBitmap: StateFlow<Bitmap?> = _previewBitmap.asStateFlow()
 
     private var serviceObserverJob: kotlinx.coroutines.Job? = null
+    private var stateCollectJob: kotlinx.coroutines.Job? = null
 
     /**
      * 开始监测 - 启动 Foreground Service
@@ -55,6 +63,8 @@ class MonitorViewModel : ViewModel() {
 
         serviceObserverJob?.cancel()
         serviceObserverJob = null
+        stateCollectJob?.cancel()
+        stateCollectJob = null
         _previewBitmap.value = null
         _uiState.value = UiState(isMonitoring = false)
     }
@@ -64,27 +74,28 @@ class MonitorViewModel : ViewModel() {
      */
     private fun observeServiceState() {
         serviceObserverJob?.cancel()
+        stateCollectJob?.cancel()
         serviceObserverJob = viewModelScope.launch(Dispatchers.Main) {
-            MonitorService.instance.collect { service ->
+            MonitorService.instance.collectLatest { service ->
+                // 取消上一个 Service 的状态收集
+                stateCollectJob?.cancel()
                 if (service == null) {
-                    // Service 已销毁
                     _uiState.value = UiState(isMonitoring = false)
                     _previewBitmap.value = null
-                    return@collect
-                }
-
-                // 收集 Service 内部状态
-                launch {
-                    service.serviceState.collect { state ->
-                        _uiState.value = UiState(
-                            isMonitoring = state.isMonitoring,
-                            currentState = state.currentState,
-                            dailySummary = state.dailySummary,
-                            detectionCount = state.detectionCount,
-                            avgInferenceTimeMs = state.avgInferenceTimeMs,
-                            frameCount = state.frameCount
-                        )
-                        _previewBitmap.value = state.previewBitmap
+                } else {
+                    // 收集 Service 内部状态
+                    stateCollectJob = viewModelScope.launch(Dispatchers.Main) {
+                        service.serviceState.collect { state ->
+                            _uiState.value = UiState(
+                                isMonitoring = state.isMonitoring,
+                                currentState = state.currentState,
+                                dailySummary = state.dailySummary,
+                                detectionCount = state.detectionCount,
+                                avgInferenceTimeMs = state.avgInferenceTimeMs,
+                                frameCount = state.frameCount
+                            )
+                            _previewBitmap.value = state.previewBitmap
+                        }
                     }
                 }
             }
@@ -98,8 +109,36 @@ class MonitorViewModel : ViewModel() {
         observeServiceState()
     }
 
+    /**
+     * 导出当日 CSV
+     */
+    fun exportCsv(context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val repo = StateEventRepositoryImpl(AppDatabase.getInstance(context))
+                val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
+                val events = repo.getEventsByDateOnce(date)
+                if (events.isEmpty()) {
+                    launch(Dispatchers.Main) {
+                        Toast.makeText(context, "当日无数据可导出", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+                val path = CsvExporter.export(context, events, date)
+                launch(Dispatchers.Main) {
+                    Toast.makeText(context, "已导出到 $path", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                launch(Dispatchers.Main) {
+                    Toast.makeText(context, "导出失败: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         serviceObserverJob?.cancel()
+        stateCollectJob?.cancel()
     }
 }
