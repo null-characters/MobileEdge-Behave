@@ -19,4 +19,7 @@ interface StateEventDao {
 
     @Query("SELECT * FROM state_events ORDER BY timestamp ASC")
     fun queryAll(): Flow<List<StateEventEntity>>
+
+    @Query("DELETE FROM state_events")
+    suspend fun deleteAll()
 }

@@ -21,4 +21,6 @@ interface StateEventRepository {
      * 获取所有状态事件
      */
     fun getAllEvents(): Flow<List<StateEvent>>
+
+    suspend fun clearAll()
 }

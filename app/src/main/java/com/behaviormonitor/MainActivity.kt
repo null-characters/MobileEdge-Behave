@@ -2,10 +2,6 @@ package com.behaviormonitor
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color as AndroidColor
-import android.graphics.Paint
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -31,7 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,47 +41,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.behaviormonitor.data.camera.CameraManager
-import com.behaviormonitor.data.local.AppDatabase
-import com.behaviormonitor.data.repository.StateEventRepositoryImpl
-import com.behaviormonitor.data.tflite.DetectionResult
-import com.behaviormonitor.data.tflite.PersonDetector
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.behaviormonitor.domain.model.MonitorState
-import com.behaviormonitor.domain.statemachine.PresenceStateMachine
+import com.behaviormonitor.presentation.viewmodel.MonitorViewModel
 import com.behaviormonitor.ui.theme.BehaviorMonitorTheme
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
-    
-    private lateinit var cameraManager: CameraManager
-    private lateinit var personDetector: PersonDetector
-    private lateinit var stateMachine: PresenceStateMachine
-    private lateinit var stateEventRepository: StateEventRepositoryImpl
-    
+
     private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            Log.d(TAG, "Camera permission granted")
-        } else {
-            Log.w(TAG, "Camera permission denied")
-        }
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
+        val notifyGranted = permissions[Manifest.permission.POST_NOTIFICATIONS] ?: false
+        Log.d(TAG, "Camera: $cameraGranted, Notifications: $notifyGranted")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        cameraManager = CameraManager(this)
-        personDetector = PersonDetector(this)
-        stateMachine = PresenceStateMachine()
-        stateEventRepository = StateEventRepositoryImpl(AppDatabase.getInstance(this))
-        
         enableEdgeToEdge()
         setContent {
             BehaviorMonitorTheme {
@@ -93,168 +66,68 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    CameraTestScreen(
-                        cameraManager = cameraManager,
-                        personDetector = personDetector,
-                        stateMachine = stateMachine,
-                        stateEventRepository = stateEventRepository,
-                        onRequestPermission = { requestCameraPermission() }
+                    val viewModel: MonitorViewModel = viewModel()
+                    MonitorScreen(
+                        viewModel = viewModel,
+                        onRequestPermissions = { requestPermissions() }
                     )
                 }
             }
         }
     }
-    
-    private fun requestCameraPermission() {
-        when {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                    == PackageManager.PERMISSION_GRANTED -> {
-                Log.d(TAG, "Camera permission already granted")
-            }
-            else -> {
-                requestPermissionLauncher.launch(Manifest.permission.CAMERA)
-            }
+
+    override fun onResume() {
+        super.onResume()
+        // 检查 Service 状态，恢复 UI
+        val viewModel = ViewModelProvider(this)[MonitorViewModel::class.java]
+        viewModel.checkServiceState()
+    }
+
+    private fun requestPermissions() {
+        val permissions = mutableListOf(Manifest.permission.CAMERA)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
+        requestPermissionLauncher.launch(permissions.toTypedArray())
     }
-    
-    override fun onDestroy() {
-        super.onDestroy()
-        cameraManager.release()
-        personDetector.release()
-    }
-    
+
     companion object {
         private const val TAG = "MainActivity"
     }
 }
 
 @Composable
-fun CameraTestScreen(
-    cameraManager: CameraManager,
-    personDetector: PersonDetector,
-    stateMachine: PresenceStateMachine,
-    stateEventRepository: StateEventRepositoryImpl,
-    onRequestPermission: () -> Unit
+fun MonitorScreen(
+    viewModel: MonitorViewModel,
+    onRequestPermissions: () -> Unit
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    
-    var isMonitoring by remember { mutableStateOf(false) }
-    var frameCount by remember { mutableStateOf(0L) }
-    var currentFps by remember { mutableStateOf(0f) }
-    var lastBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    
-    // TFLite 相关状态
-    var isModelLoaded by remember { mutableStateOf(false) }
-    var lastDetectionResult by remember { mutableStateOf<DetectionResult?>(null) }
-    var avgInferenceTime by remember { mutableStateOf(0f) }
-    var inferenceCount by remember { mutableStateOf(0L) }
-    var totalInferenceTime by remember { mutableStateOf(0L) }
-    var monitorState by remember { mutableStateOf(MonitorState.UNKNOWN) }
-    
-    // FPS 计算
-    var frameCountInWindow by remember { mutableStateOf(0L) }
-    var windowStartTime by remember { mutableStateOf(0L) }
-    
-    // 初始化 TFLite 模型
-    DisposableEffect(personDetector) {
-        isModelLoaded = personDetector.initialize()
-        if (!isModelLoaded) {
-            errorMessage = "模型加载失败"
-        }
-        onDispose { }
-    }
-    
-    // 监听帧流
-    DisposableEffect(cameraManager, isModelLoaded) {
-        val job = CoroutineScope(Dispatchers.Main).launch {
-            cameraManager.frameFlow.collect { bitmap ->
-                if (bitmap != null && isModelLoaded) {
-                    frameCount++
-                    frameCountInWindow++
-                    
-                    // 运行人形检测
-                    val result = personDetector.detect(bitmap)
-                    lastDetectionResult = result
+    val uiState by viewModel.uiState.collectAsState()
+    val previewBitmap by viewModel.previewBitmap.collectAsState()
 
-                    // 状态机处理
-                    val isPersonDetected = result.detections.isNotEmpty()
-                    val maxConfidence = result.detections.maxOfOrNull { it.confidence } ?: 0f
-                    val stateEvent = stateMachine.processDetection(isPersonDetected, maxConfidence)
-                    monitorState = stateMachine.currentState
-                    if (stateEvent != null) {
-                        Log.d("StateChange", "${stateEvent.fromState} → ${stateEvent.toState}, confidence=${stateEvent.confidence}")
-                        withContext(Dispatchers.IO) {
-                            stateEventRepository.saveEvent(stateEvent)
-                        }
-                    }
-                    
-                    // 统计推理时间
-                    if (result.inferenceTimeMs > 0) {
-                        inferenceCount++
-                        totalInferenceTime += result.inferenceTimeMs
-                        avgInferenceTime = totalInferenceTime.toFloat() / inferenceCount
-                    }
-                    
-                    // 绘制检测框（回收旧的 Bitmap）
-                    val oldBitmap = lastBitmap
-                    lastBitmap = drawDetections(bitmap, result)
-                    oldBitmap?.recycle()
-                    
-                    // 计算FPS
-                    val currentTime = System.currentTimeMillis()
-                    if (windowStartTime == 0L) {
-                        windowStartTime = currentTime
-                    } else if (currentTime - windowStartTime >= 1000) {
-                        currentFps = frameCountInWindow * 1000f / (currentTime - windowStartTime)
-                        frameCountInWindow = 0
-                        windowStartTime = currentTime
-                    }
-                    
-                    errorMessage = null
-                }
-            }
-        }
-        onDispose { job.cancel() }
-    }
-    
-    // 生命周期监听
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_DESTROY) {
-                cameraManager.stopCamera()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-    
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 标题
         Text(
-            text = "TFLite 人形检测测试",
+            text = "行为监测",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
-        
+
         Spacer(modifier = Modifier.height(12.dp))
-        
+
         // 状态卡片
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
                 containerColor = when {
-                    !isModelLoaded -> Color(0xFF, 0x98, 0x00)  // 橙色：模型未加载
-                    isMonitoring -> Color(0x4C, 0xAF, 0x50)   // 绿色：监测中
-                    else -> Color(0x9E, 0x9E, 0x9E)           // 灰色：未启动
+                    uiState.isMonitoring -> Color(0x4C, 0xAF, 0x50)
+                    else -> Color(0x9E, 0x9E, 0x9E)
                 }
             )
         ) {
@@ -263,38 +136,22 @@ fun CameraTestScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = when {
-                        !isModelLoaded -> "模型未加载"
-                        isMonitoring -> "监测中"
-                        else -> "未启动"
-                    },
+                    text = if (uiState.isMonitoring) "监测中" else "未启动",
                     color = Color.White,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
         }
-        
+
         Spacer(modifier = Modifier.height(12.dp))
-        
-        // 统计信息
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            StatCard(title = "帧数", value = frameCount.toString())
-            StatCard(title = "FPS", value = String.format("%.1f", currentFps))
-        }
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        // TFLite 统计
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            StatCard(title = "检测人数", value = lastDetectionResult?.detections?.size?.toString() ?: "-")
-            StatCard(title = "推理(ms)", value = String.format("%.1f", avgInferenceTime))
+            StatCard(title = "帧数", value = uiState.frameCount.toString())
+            StatCard(title = "推理(ms)", value = uiState.avgInferenceTimeMs.toString())
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -303,15 +160,26 @@ fun CameraTestScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            StatCard(title = "状态", value = when (monitorState) {
+            StatCard(title = "检测人数", value = uiState.detectionCount.toString())
+            StatCard(title = "状态", value = when (uiState.currentState) {
                 MonitorState.PRESENT -> "在岗"
                 MonitorState.ABSENT -> "离岗"
                 MonitorState.UNKNOWN -> "未知"
             })
         }
-        
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            StatCard(title = "离岗次数", value = uiState.dailySummary?.absentCount?.toString() ?: "-")
+            StatCard(title = "在岗时长", value = formatDuration(uiState.dailySummary?.presentDuration))
+        }
+
         Spacer(modifier = Modifier.height(12.dp))
-        
+
         // 预览图像
         Card(
             modifier = Modifier
@@ -324,24 +192,20 @@ fun CameraTestScreen(
                     .background(androidx.compose.ui.graphics.Color.Black),
                 contentAlignment = Alignment.Center
             ) {
-                if (lastBitmap != null) {
+                if (previewBitmap != null) {
                     Image(
-                        bitmap = lastBitmap!!.asImageBitmap(),
+                        bitmap = previewBitmap!!.asImageBitmap(),
                         contentDescription = "Camera Preview",
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    Text(
-                        text = "无图像",
-                        color = Color.White
-                    )
+                    Text(text = "无图像", color = Color.White)
                 }
             }
         }
-        
+
         Spacer(modifier = Modifier.height(12.dp))
-        
-        // 错误信息
+
         if (errorMessage != null) {
             Text(
                 text = errorMessage!!,
@@ -350,89 +214,51 @@ fun CameraTestScreen(
             )
             Spacer(modifier = Modifier.height(8.dp))
         }
-        
-        // 控制按钮
+
         Button(
             onClick = {
-                if (!isModelLoaded) {
-                    errorMessage = "模型未加载，无法启动"
-                    return@Button
-                }
-                
-                if (!isMonitoring) {
+                if (!uiState.isMonitoring) {
                     // 检查权限
-                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
-                        != PackageManager.PERMISSION_GRANTED) {
-                        onRequestPermission()
+                    val hasCamera = ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.CAMERA
+                    ) == PackageManager.PERMISSION_GRANTED
+
+                    if (!hasCamera) {
+                        onRequestPermissions()
                         errorMessage = "请授予相机权限"
                         return@Button
                     }
-                    
-                    // 启动相机
-                    try {
-                        cameraManager.startCamera(lifecycleOwner, fps = 5)
-                        stateMachine.reset()
-                        isMonitoring = true
-                        frameCount = 0
-                        frameCountInWindow = 0
-                        windowStartTime = 0
-                        currentFps = 0f
-                        inferenceCount = 0
-                        totalInferenceTime = 0
-                        avgInferenceTime = 0f
-                    } catch (e: Exception) {
-                        errorMessage = "启动失败: ${e.message}"
+
+                    // Android 13+ 需要通知权限
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        val hasNotify = ContextCompat.checkSelfPermission(
+                            context, Manifest.permission.POST_NOTIFICATIONS
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (!hasNotify) {
+                            onRequestPermissions()
+                            // 不阻止启动，通知权限非必需
+                        }
                     }
+
+                    viewModel.startMonitoring(context)
+                    errorMessage = null
                 } else {
-                    cameraManager.stopCamera()
-                    isMonitoring = false
-                    lastBitmap = null
-                    lastDetectionResult = null
+                    viewModel.stopMonitoring(context)
                 }
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(text = if (isMonitoring) "停止监测" else "开始监测")
+            Text(text = if (uiState.isMonitoring) "停止监测" else "开始监测")
         }
     }
 }
 
-/**
- * 在 Bitmap 上绘制检测框
- */
-fun drawDetections(bitmap: Bitmap, result: DetectionResult): Bitmap {
-    val outputBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-    val canvas = Canvas(outputBitmap)
-    val paint = Paint().apply {
-        color = AndroidColor.GREEN
-        strokeWidth = 3f
-        style = Paint.Style.STROKE
-    }
-    val textPaint = Paint().apply {
-        color = AndroidColor.GREEN
-        textSize = 24f
-        isAntiAlias = true
-    }
-    
-    val width = bitmap.width.toFloat()
-    val height = bitmap.height.toFloat()
-    
-    result.detections.forEach { detection ->
-        val box = detection.boundingBox
-        val left = box.xmin * width
-        val top = box.ymin * height
-        val right = box.xmax * width
-        val bottom = box.ymax * height
-        
-        // 绘制框
-        canvas.drawRect(left, top, right, bottom, paint)
-        
-        // 绘制置信度
-        val text = String.format("%.0f%%", detection.confidence * 100)
-        canvas.drawText(text, left, top - 8f, textPaint)
-    }
-    
-    return outputBitmap
+private fun formatDuration(ms: Long?): String {
+    if (ms == null) return "-"
+    val seconds = ms / 1000
+    val minutes = seconds / 60
+    val secs = seconds % 60
+    return if (minutes > 0) "${minutes}分${secs}秒" else "${secs}秒"
 }
 
 @Composable

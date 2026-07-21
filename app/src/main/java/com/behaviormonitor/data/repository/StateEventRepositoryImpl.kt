@@ -32,4 +32,8 @@ class StateEventRepositoryImpl(
             entities.map { it.toDomain() }
         }
     }
+
+    override suspend fun clearAll() {
+        dao.deleteAll()
+    }
 }

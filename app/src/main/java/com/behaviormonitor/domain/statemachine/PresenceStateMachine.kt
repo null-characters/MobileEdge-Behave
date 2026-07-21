@@ -54,6 +54,6 @@ class PresenceStateMachine(
     }
 
     companion object {
-        const val DEFAULT_THRESHOLD = 5
+        const val DEFAULT_THRESHOLD = 15
     }
 }

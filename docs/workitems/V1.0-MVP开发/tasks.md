@@ -13,7 +13,8 @@
 | V1.6 | 2026-07-21 | T-04 实机验证通过，发现推理时间随运行时长增长问题 |
 | V1.7 | 2026-07-21 | T-04 性能修复：复用输入缓冲区，解决推理时间增长问题 |
 | V1.8 | 2026-07-21 | T-04 性能优化任务跳过（暂不影响功能） |
-| V1.9 | 2026-07-21 | T-05~T-08 已完成 |
+| V1.9 | 2026-07-21 | T-05~T-08 实机验证通过 |
+| V2.0 | 2026-07-21 | T-09 实机验证通过；状态机阈值改为 15 帧；修复预览旋转和历史数据问题 |
 
 ---
 
@@ -27,11 +28,11 @@
 | T-02 | 搭建 MVVM 架构骨架 | 全局 | T-01 | 1. 创建包结构：data/domain/presentation/service<br>2. 创建 Application 类<br>3. 编译通过，无警告 | ✅ 已完成 |
 | T-03 | 实现 CameraX 视频帧采集（固定 5fps） | Data/CameraX | T-02 | 1. 能获取视频帧，帧率稳定在 5fps<br>2. ImageAnalysis 配置正确<br>3. 帧能正确转换为 Bitmap | ✅ 已完成 |
 | T-04 | 集成 EfficientDet-Lite0 模型，实现 NNAPI 推理 | Data/TFLite | T-02 | 1. 模型文件加载成功<br>2. NNAPI delegate 配置成功<br>3. 推理延迟 < 30ms（测量 10 次取平均）<br>4. 输入 320x320 Bitmap，输出检测框数组 | ✅ 已完成<br>⚠️ 性能优化跳过（暂不影响功能） |
-| T-05 | 实现人形检测后处理 | Data/TFLite | T-04 | 1. 正确解析检测框坐标（ymin/xmin/ymax/xmax）<br>2. 置信度过滤：只保留 > 0.5<br>3. 面积过滤：只保留 > 5% 画面<br>4. 类别过滤：只保留类别=0（人）<br>5. 返回 List<DetectionResult> | 🔧 已实现，待验证 |
-| T-06 | 实现状态机 | Domain/StateMachine | T-05 | 1. 三种状态：UNKNOWN/PRESENT/ABSENT<br>2. 连续 5 帧检测到人 → PRESENT<br>3. 连续 5 帧未检测到人 → ABSENT<br>4. 状态变化时返回 StateEvent，否则返回 null<br>5. 状态变化延迟 < 3s | 🔧 已实现，待验证 |
-| T-07 | 实现 StateEvent 数据模型与 Room 数据库 | Data/Room | T-02 | 1. StateEvent 实体：id/timestamp/fromState/toState/confidence<br>2. StateEventDao：insert/queryByDate<br>3. 数据库创建成功，CRUD 测试通过 | 🔧 已实现，待验证 |
-| T-08 | 实现 StateEventRepository | Domain/Repository | T-07 | 1. saveEvent(event) 保存成功<br>2. getEventsByDate(date) 返回当日事件列表<br>3. 使用 Flow 或 suspend 函数 | 🔧 已实现，待验证 |
-| T-09 | 实现 MonitorViewModel | Presentation/ViewModel | T-06, T-08 | 1. UiState 包含：currentState(DailySummary)<br>2. startMonitoring() 启动监测<br>3. stopMonitoring() 停止监测<br>4. 状态变化时 UiState 自动更新<br>5. 统计数据计算正确（在岗时长/离岗时长/离岗次数） | 待开始 |
+| T-05 | 实现人形检测后处理 | Data/TFLite | T-04 | 1. 正确解析检测框坐标（ymin/xmin/ymax/xmax）<br>2. 置信度过滤：只保留 > 0.5<br>3. 面积过滤：只保留 > 5% 画面<br>4. 类别过滤：只保留类别=0（人）<br>5. 返回 List<DetectionResult> | ✅ 已完成 |
+| T-06 | 实现状态机 | Domain/StateMachine | T-05 | 1. 三种状态：UNKNOWN/PRESENT/ABSENT<br>2. 连续 5 帧检测到人 → PRESENT<br>3. 连续 5 帧未检测到人 → ABSENT<br>4. 状态变化时返回 StateEvent，否则返回 null<br>5. 状态变化延迟 < 3s | ✅ 已完成 |
+| T-07 | 实现 StateEvent 数据模型与 Room 数据库 | Data/Room | T-02 | 1. StateEvent 实体：id/timestamp/fromState/toState/confidence<br>2. StateEventDao：insert/queryByDate<br>3. 数据库创建成功，CRUD 测试通过 | ✅ 已完成 |
+| T-08 | 实现 StateEventRepository | Domain/Repository | T-07 | 1. saveEvent(event) 保存成功<br>2. getEventsByDate(date) 返回当日事件列表<br>3. 使用 Flow 或 suspend 函数 | ✅ 已完成 |
+| T-09 | 实现 MonitorViewModel | Presentation/ViewModel | T-06, T-08 | 1. UiState 包含：currentState(DailySummary)<br>2. startMonitoring() 启动监测<br>3. stopMonitoring() 停止监测<br>4. 状态变化时 UiState 自动更新<br>5. 统计数据计算正确（在岗时长/离岗时长/离岗次数） | ✅ 已完成 |
 | T-10 | 实现后台保活 | Service | T-02 | 1. Foreground Service 启动，通知栏显示"监测中"<br>2. WakeLock 保持 CPU 运行<br>3. 屏幕关闭后服务继续运行<br>4. 异常退出后自动重启<br>5. 连续运行 8 小时不被杀 | 待开始 |
 
 ### P1 - 重要任务

@@ -35,13 +35,11 @@
             </intent-filter>
         </activity>
 
-        <!-- 监测服务（V1.0 T-10 实现） -->
-        <!--
+        <!-- 监测服务 -->
         <service
             android:name=".service.MonitorService"
             android:exported="false"
             android:foregroundServiceType="camera" />
-        -->
 
     </application>
 

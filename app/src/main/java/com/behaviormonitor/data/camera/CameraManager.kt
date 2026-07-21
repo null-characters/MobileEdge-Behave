@@ -80,6 +80,57 @@ class CameraManager(private val context: Context) {
     }
 
     /**
+     * 启动相机（无 LifecycleOwner 版本，用于 Service）
+     * 手动管理相机生命周期
+     * @param fps 帧率（默认 5fps）
+     */
+    fun startCameraWithoutLifecycle(fps: Int = 5) {
+        if (isRunning) return
+
+        frameIntervalMs = 1000L / fps
+        cameraExecutor = Executors.newSingleThreadExecutor()
+
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+
+        cameraProviderFuture.addListener({
+            try {
+                cameraProvider = cameraProviderFuture.get()
+
+                // 配置图像分析
+                imageAnalysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                    .also { analysis ->
+                        analysis.setAnalyzer(cameraExecutor!!) { imageProxy ->
+                            processFrame(imageProxy)
+                        }
+                    }
+
+                // 选择前置摄像头
+                val cameraSelector = CameraSelector.Builder()
+                    .requireLensFacing(CameraSelector.LENS_FACING_FRONT)
+                    .build()
+
+                // 解绑所有用例
+                cameraProvider?.unbindAll()
+
+                // Service 场景：绑定到 ProcessCameraProvider 自身的 Lifecycle
+                // ProcessCameraProvider 的 Lifecycle 始终处于 RESUMED，确保相机持续运行
+                val owner = cameraProvider as LifecycleOwner
+                cameraProvider?.bindToLifecycle(
+                    owner,
+                    cameraSelector,
+                    imageAnalysis
+                )
+
+                isRunning = true
+            } catch (e: Exception) {
+                _frameFlow.value = null
+            }
+        }, ContextCompat.getMainExecutor(context))
+    }
+
+    /**
      * 停止相机
      */
     fun stopCamera() {
@@ -107,9 +158,7 @@ class CameraManager(private val context: Context) {
         lastFrameTime = currentTime
         
         try {
-            // 回收旧的 Bitmap
-            _frameFlow.value?.recycle()
-            
+            // 不 recycle 旧 Bitmap，由消费者负责
             val bitmap = FrameAnalyzer.imageProxyToBitmap(imageProxy)
             _frameFlow.value = bitmap
         } finally {
