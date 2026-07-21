@@ -49,17 +49,24 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.behaviormonitor.data.camera.CameraManager
+import com.behaviormonitor.data.local.AppDatabase
+import com.behaviormonitor.data.repository.StateEventRepositoryImpl
 import com.behaviormonitor.data.tflite.DetectionResult
 import com.behaviormonitor.data.tflite.PersonDetector
+import com.behaviormonitor.domain.model.MonitorState
+import com.behaviormonitor.domain.statemachine.PresenceStateMachine
 import com.behaviormonitor.ui.theme.BehaviorMonitorTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     
     private lateinit var cameraManager: CameraManager
     private lateinit var personDetector: PersonDetector
+    private lateinit var stateMachine: PresenceStateMachine
+    private lateinit var stateEventRepository: StateEventRepositoryImpl
     
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -76,6 +83,8 @@ class MainActivity : ComponentActivity() {
         
         cameraManager = CameraManager(this)
         personDetector = PersonDetector(this)
+        stateMachine = PresenceStateMachine()
+        stateEventRepository = StateEventRepositoryImpl(AppDatabase.getInstance(this))
         
         enableEdgeToEdge()
         setContent {
@@ -87,6 +96,8 @@ class MainActivity : ComponentActivity() {
                     CameraTestScreen(
                         cameraManager = cameraManager,
                         personDetector = personDetector,
+                        stateMachine = stateMachine,
+                        stateEventRepository = stateEventRepository,
                         onRequestPermission = { requestCameraPermission() }
                     )
                 }
@@ -121,6 +132,8 @@ class MainActivity : ComponentActivity() {
 fun CameraTestScreen(
     cameraManager: CameraManager,
     personDetector: PersonDetector,
+    stateMachine: PresenceStateMachine,
+    stateEventRepository: StateEventRepositoryImpl,
     onRequestPermission: () -> Unit
 ) {
     val context = LocalContext.current
@@ -138,6 +151,7 @@ fun CameraTestScreen(
     var avgInferenceTime by remember { mutableStateOf(0f) }
     var inferenceCount by remember { mutableStateOf(0L) }
     var totalInferenceTime by remember { mutableStateOf(0L) }
+    var monitorState by remember { mutableStateOf(MonitorState.UNKNOWN) }
     
     // FPS 计算
     var frameCountInWindow by remember { mutableStateOf(0L) }
@@ -163,6 +177,18 @@ fun CameraTestScreen(
                     // 运行人形检测
                     val result = personDetector.detect(bitmap)
                     lastDetectionResult = result
+
+                    // 状态机处理
+                    val isPersonDetected = result.detections.isNotEmpty()
+                    val maxConfidence = result.detections.maxOfOrNull { it.confidence } ?: 0f
+                    val stateEvent = stateMachine.processDetection(isPersonDetected, maxConfidence)
+                    monitorState = stateMachine.currentState
+                    if (stateEvent != null) {
+                        Log.d("StateChange", "${stateEvent.fromState} → ${stateEvent.toState}, confidence=${stateEvent.confidence}")
+                        withContext(Dispatchers.IO) {
+                            stateEventRepository.saveEvent(stateEvent)
+                        }
+                    }
                     
                     // 统计推理时间
                     if (result.inferenceTimeMs > 0) {
@@ -270,6 +296,19 @@ fun CameraTestScreen(
             StatCard(title = "检测人数", value = lastDetectionResult?.detections?.size?.toString() ?: "-")
             StatCard(title = "推理(ms)", value = String.format("%.1f", avgInferenceTime))
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            StatCard(title = "状态", value = when (monitorState) {
+                MonitorState.PRESENT -> "在岗"
+                MonitorState.ABSENT -> "离岗"
+                MonitorState.UNKNOWN -> "未知"
+            })
+        }
         
         Spacer(modifier = Modifier.height(12.dp))
         
@@ -332,6 +371,7 @@ fun CameraTestScreen(
                     // 启动相机
                     try {
                         cameraManager.startCamera(lifecycleOwner, fps = 5)
+                        stateMachine.reset()
                         isMonitoring = true
                         frameCount = 0
                         frameCountInWindow = 0
