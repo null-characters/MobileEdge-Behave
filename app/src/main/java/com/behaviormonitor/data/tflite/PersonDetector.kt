@@ -6,6 +6,7 @@ import android.util.Log
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.nnapi.NnApiDelegate
 import java.io.FileInputStream
+import java.nio.ByteBuffer
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 
@@ -52,7 +53,7 @@ class PersonDetector(private val context: Context) {
             // 创建解释器（只使用 XNNPACK，避免 delegate 切换开销）
             val options = Interpreter.Options()
                 .setUseXNNPACK(true)
-                .setNumThreads(4)  // 使用 4 线程
+                .setNumThreads(2)  // T-15c: 降至 2 线程降低 CPU 占用
             
             interpreter = Interpreter(modelBuffer, options)
             isInitialized = true
@@ -191,22 +192,23 @@ class PersonDetector(private val context: Context) {
         return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
     }
     
+    /** T-15d: 复用 pixels 数组避免每帧分配 */
+    private val reusablePixels = IntArray(INPUT_SIZE * INPUT_SIZE)
+
     /**
      * 将 Bitmap 填充到输入缓冲区（UINT8 格式，复用缓冲区）
+     * T-15d: 复用 pixels 数组，减少 GC 压力
      */
     private fun fillInputBuffer(bitmap: Bitmap) {
         val width = bitmap.width
         val height = bitmap.height
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                val pixel = pixels[y * width + x]
-                inputBuffer[0][y][x][0] = ((pixel shr 16) and 0xFF).toByte()  // R
-                inputBuffer[0][y][x][1] = ((pixel shr 8) and 0xFF).toByte()   // G
-                inputBuffer[0][y][x][2] = (pixel and 0xFF).toByte()           // B
-            }
+        bitmap.getPixels(reusablePixels, 0, width, 0, 0, width, height)
+
+        for (i in 0 until width * height) {
+            val pixel = reusablePixels[i]
+            inputBuffer[0][i / width][i % width][0] = ((pixel shr 16) and 0xFF).toByte()  // R
+            inputBuffer[0][i / width][i % width][1] = ((pixel shr 8) and 0xFF).toByte()   // G
+            inputBuffer[0][i / width][i % width][2] = (pixel and 0xFF).toByte()           // B
         }
     }
     

@@ -82,6 +82,13 @@ class MainActivity : ComponentActivity() {
         // 检查 Service 状态，恢复 UI
         val viewModel = ViewModelProvider(this)[MonitorViewModel::class.java]
         viewModel.checkServiceState()
+        viewModel.setForegroundState(true)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        val viewModel = ViewModelProvider(this)[MonitorViewModel::class.java]
+        viewModel.setForegroundState(false)
     }
 
     private fun requestPermissions() {

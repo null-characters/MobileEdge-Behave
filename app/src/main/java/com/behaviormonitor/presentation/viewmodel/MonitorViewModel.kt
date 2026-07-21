@@ -110,6 +110,13 @@ class MonitorViewModel : ViewModel() {
     }
 
     /**
+     * 通知 Service 前后台状态变化（T-15b）
+     */
+    fun setForegroundState(isForeground: Boolean) {
+        MonitorService.instance.value?.setForegroundState(isForeground)
+    }
+
+    /**
      * 导出当日 CSV
      */
     fun exportCsv(context: Context) {

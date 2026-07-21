@@ -189,7 +189,6 @@ class CameraManager(private val context: Context) {
         lastFrameTime = currentTime
         
         try {
-            // 不 recycle 旧 Bitmap，由消费者负责
             val bitmap = FrameAnalyzer.imageProxyToBitmap(imageProxy)
             _frameFlow.value = bitmap
         } finally {

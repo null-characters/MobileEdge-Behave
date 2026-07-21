@@ -2,6 +2,7 @@ package com.behaviormonitor.data.camera
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Bitmap.Config
 import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
@@ -13,17 +14,18 @@ import java.io.ByteArrayOutputStream
  */
 object FrameAnalyzer {
 
+    /** 复用 NV21 缓冲区，避免每帧分配 */
+    private var reusableNv21: ByteArray? = null
+
     /**
      * 将 ImageProxy 转换为 Bitmap
-     * @param imageProxy 相机帧数据
-     * @return Bitmap 或 null（转换失败时）
+     * 优化：复用 NV21 缓冲区，降低 JPEG 质量减少内存
      */
     fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap? {
         val image = imageProxy.image ?: return null
-        
+
         return when (imageProxy.format) {
             ImageFormat.YUV_420_888 -> {
-                // YUV 转 JPEG 再转 Bitmap
                 val yBuffer = image.planes[0].buffer
                 val uBuffer = image.planes[1].buffer
                 val vBuffer = image.planes[2].buffer
@@ -31,17 +33,22 @@ object FrameAnalyzer {
                 val ySize = yBuffer.remaining()
                 val uSize = uBuffer.remaining()
                 val vSize = vBuffer.remaining()
+                val nv21Size = ySize + uSize + vSize
 
-                val nv21 = ByteArray(ySize + uSize + vSize)
+                // 复用 NV21 缓冲区
+                val nv21 = reusableNv21?.let {
+                    if (it.size >= nv21Size) it else ByteArray(nv21Size)
+                } ?: ByteArray(nv21Size)
+                reusableNv21 = nv21
 
-                // U 和 V 交错排列
                 yBuffer.get(nv21, 0, ySize)
                 vBuffer.get(nv21, ySize, vSize)
                 uBuffer.get(nv21, ySize + vSize, uSize)
 
                 val yuvImage = YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
                 val outputStream = ByteArrayOutputStream()
-                yuvImage.compressToJpeg(Rect(0, 0, image.width, image.height), 100, outputStream)
+                // 质量 70 足够检测，大幅减少 JPEG 字节数和解码内存
+                yuvImage.compressToJpeg(Rect(0, 0, image.width, image.height), 70, outputStream)
                 val jpegBytes = outputStream.toByteArray()
                 BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
             }
@@ -51,10 +58,6 @@ object FrameAnalyzer {
 
     /**
      * 将 Bitmap 缩放到指定尺寸
-     * @param bitmap 原始 Bitmap
-     * @param targetWidth 目标宽度
-     * @param targetHeight 目标高度
-     * @return 缩放后的 Bitmap
      */
     fun resizeBitmap(bitmap: Bitmap, targetWidth: Int, targetHeight: Int): Bitmap {
         if (bitmap.width == targetWidth && bitmap.height == targetHeight) {

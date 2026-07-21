@@ -38,6 +38,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 
 /**
  * 前台监测服务
@@ -56,6 +57,18 @@ class MonitorService : android.app.Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+
+    /** 检测帧率节流：最小检测间隔 500ms（2fps） */
+    private var lastDetectionTime = 0L
+    private val detectionIntervalMs = 500L
+
+    /** 是否在前台（有 Activity 可见） */
+    private var isForeground = true
+
+    /** T-15b: 通知前后台状态变化 */
+    fun setForegroundState(foreground: Boolean) {
+        isForeground = foreground
+    }
 
     /** 服务状态，供 ViewModel/Activity 观察 */
     private val _serviceState = MutableStateFlow(MonitorServiceState())
@@ -137,7 +150,7 @@ class MonitorService : android.app.Service() {
 
     private fun startCameraAndMonitoring() {
         // 启动相机（Service 无 LifecycleOwner，使用独立方法）
-        cameraManager.startCameraWithoutLifecycle(fps = 5)
+        cameraManager.startCameraWithoutLifecycle(fps = 2)
         _serviceState.value = MonitorServiceState(
             isMonitoring = true,
             currentState = MonitorState.UNKNOWN
@@ -148,17 +161,26 @@ class MonitorService : android.app.Service() {
             cameraManager.frameFlow.collectLatest { bitmap ->
                 if (bitmap == null) return@collectLatest
 
+                // T-15a: 检测帧率节流，最小间隔 500ms（2fps）
+                val now = System.currentTimeMillis()
+                if (now - lastDetectionTime < detectionIntervalMs) return@collectLatest
+                lastDetectionTime = now
+
                 // 逆时针旋转 90 度修正前置摄像头方向
                 val rotated = rotateBitmap(bitmap, -90f)
+                bitmap.recycle() // 旋转完成，回收相机帧
 
                 // 人形检测
                 val result = personDetector.detect(rotated)
 
-                // 更新预览位图
-                val preview = drawDetections(rotated, result)
-                _serviceState.value = _serviceState.value.copy(
-                    previewBitmap = preview
-                )
+                // T-15b: 后台时跳过预览绘制，减少 Bitmap 拷贝
+                if (isForeground) {
+                    val preview = drawDetections(rotated, result)
+                    _serviceState.value = _serviceState.value.copy(
+                        previewBitmap = preview
+                    )
+                }
+                rotated.recycle() // 检测和绘制完成，回收旋转帧
 
                 // 状态机处理
                 val isPersonDetected = result.detections.isNotEmpty()
@@ -285,15 +307,15 @@ class MonitorService : android.app.Service() {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
+    private val rotationMatrix = Matrix().apply { postRotate(-90f) }
+
     private fun rotateBitmap(bitmap: Bitmap, degrees: Float): Bitmap {
-        val matrix = Matrix().apply {
-            postRotate(degrees)
-        }
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, rotationMatrix, true)
     }
 
     private fun drawDetections(bitmap: Bitmap, result: DetectionResult): Bitmap {
-        val outputBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        // 使用 RGB_565 节省 50% 内存（预览不需要透明度）
+        val outputBitmap = bitmap.copy(Bitmap.Config.RGB_565, true)
         val canvas = Canvas(outputBitmap)
         val paint = Paint().apply {
             color = AndroidColor.GREEN
