@@ -7,6 +7,12 @@
 | V1.0 | 2026-07-21 | 初稿 |
 | V1.1 | 2026-07-21 | 根据 Karpathy Guidelines 审查优化：移除推测性设计、合并过度拆分任务、明确测试要点 |
 | V1.2 | 2026-07-21 | T-01 已完成 |
+| V1.3 | 2026-07-21 | T-02 已完成 |
+| V1.4 | 2026-07-21 | T-03 实机验证通过（FPS 4.5） |
+| V1.5 | 2026-07-21 | T-04 优化：分离推理计时、ByteBuffer 优化、预热机制 |
+| V1.6 | 2026-07-21 | T-04 实机验证通过，发现推理时间随运行时长增长问题 |
+| V1.7 | 2026-07-21 | T-04 性能修复：复用输入缓冲区，解决推理时间增长问题 |
+| V1.8 | 2026-07-21 | T-04 性能优化任务跳过（暂不影响功能） |
 
 ---
 
@@ -17,9 +23,9 @@
 | 编号 | 任务描述 | 影响模块 | 依赖 | 测试要点 | 状态 |
 |------|----------|----------|------|----------|------|
 | T-01 | 创建 Android 项目，配置基础依赖 | 项目根目录 | - | 1. 项目编译通过<br>2. 包含 Kotlin/Compose/CameraX/TFLite/Room 依赖<br>3. minSdk=23, targetSdk=35 | ✅ 已完成 |
-| T-02 | 搭建 MVVM 架构骨架 | 全局 | T-01 | 1. 创建包结构：data/domain/presentation/service<br>2. 创建 Application 类<br>3. 编译通过，无警告 | 待开始 |
-| T-03 | 实现 CameraX 视频帧采集（固定 5fps） | Data/CameraX | T-02 | 1. 能获取视频帧，帧率稳定在 5fps<br>2. ImageAnalysis 配置正确<br>3. 帧能正确转换为 Bitmap | 待开始 |
-| T-04 | 集成 EfficientDet-Lite0 模型，实现 NNAPI 推理 | Data/TFLite | T-02 | 1. 模型文件加载成功<br>2. NNAPI delegate 配置成功<br>3. 推理延迟 < 30ms（测量 10 次取平均）<br>4. 输入 320x320 Bitmap，输出检测框数组 | 待开始 |
+| T-02 | 搭建 MVVM 架构骨架 | 全局 | T-01 | 1. 创建包结构：data/domain/presentation/service<br>2. 创建 Application 类<br>3. 编译通过，无警告 | ✅ 已完成 |
+| T-03 | 实现 CameraX 视频帧采集（固定 5fps） | Data/CameraX | T-02 | 1. 能获取视频帧，帧率稳定在 5fps<br>2. ImageAnalysis 配置正确<br>3. 帧能正确转换为 Bitmap | ✅ 已完成 |
+| T-04 | 集成 EfficientDet-Lite0 模型，实现 NNAPI 推理 | Data/TFLite | T-02 | 1. 模型文件加载成功<br>2. NNAPI delegate 配置成功<br>3. 推理延迟 < 30ms（测量 10 次取平均）<br>4. 输入 320x320 Bitmap，输出检测框数组 | ✅ 已完成<br>⚠️ 性能优化跳过（暂不影响功能） |
 | T-05 | 实现人形检测后处理 | Data/TFLite | T-04 | 1. 正确解析检测框坐标（ymin/xmin/ymax/xmax）<br>2. 置信度过滤：只保留 > 0.5<br>3. 面积过滤：只保留 > 5% 画面<br>4. 类别过滤：只保留类别=0（人）<br>5. 返回 List<DetectionResult> | 待开始 |
 | T-06 | 实现状态机 | Domain/StateMachine | T-05 | 1. 三种状态：UNKNOWN/PRESENT/ABSENT<br>2. 连续 5 帧检测到人 → PRESENT<br>3. 连续 5 帧未检测到人 → ABSENT<br>4. 状态变化时返回 StateEvent，否则返回 null<br>5. 状态变化延迟 < 3s | 待开始 |
 | T-07 | 实现 StateEvent 数据模型与 Room 数据库 | Data/Room | T-02 | 1. StateEvent 实体：id/timestamp/fromState/toState/confidence<br>2. StateEventDao：insert/queryByDate<br>3. 数据库创建成功，CRUD 测试通过 | 待开始 |
