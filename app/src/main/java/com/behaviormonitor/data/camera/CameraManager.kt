@@ -2,12 +2,15 @@ package com.behaviormonitor.data.camera
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +21,8 @@ import java.util.concurrent.Executors
  * 相机管理器 - 使用 CameraX 进行视频帧采集
  */
 class CameraManager(private val context: Context) {
+
+    private val TAG = "CameraManager"
 
     private var cameraProvider: ProcessCameraProvider? = null
     private var imageAnalysis: ImageAnalysis? = null
@@ -73,15 +78,19 @@ class CameraManager(private val context: Context) {
                 )
 
                 isRunning = true
+                Log.d(TAG, "Camera started with LifecycleOwner")
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to start camera", e)
                 _frameFlow.value = null
             }
         }, ContextCompat.getMainExecutor(context))
     }
 
+    private var serviceLifecycleOwner: ServiceLifecycleOwner? = null
+
     /**
      * 启动相机（无 LifecycleOwner 版本，用于 Service）
-     * 手动管理相机生命周期
+     * 创建自定义 LifecycleOwner，手动管理生命周期
      * @param fps 帧率（默认 5fps）
      */
     fun startCameraWithoutLifecycle(fps: Int = 5) {
@@ -89,6 +98,12 @@ class CameraManager(private val context: Context) {
 
         frameIntervalMs = 1000L / fps
         cameraExecutor = Executors.newSingleThreadExecutor()
+
+        // 创建自定义 LifecycleOwner 并设为 RESUMED
+        serviceLifecycleOwner = ServiceLifecycleOwner()
+        serviceLifecycleOwner?.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        serviceLifecycleOwner?.handleLifecycleEvent(Lifecycle.Event.ON_START)
+        serviceLifecycleOwner?.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
 
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
 
@@ -114,20 +129,33 @@ class CameraManager(private val context: Context) {
                 // 解绑所有用例
                 cameraProvider?.unbindAll()
 
-                // Service 场景：绑定到 ProcessCameraProvider 自身的 Lifecycle
-                // ProcessCameraProvider 的 Lifecycle 始终处于 RESUMED，确保相机持续运行
-                val owner = cameraProvider as LifecycleOwner
+                // 绑定到自定义 LifecycleOwner
                 cameraProvider?.bindToLifecycle(
-                    owner,
+                    serviceLifecycleOwner!!,
                     cameraSelector,
                     imageAnalysis
                 )
 
                 isRunning = true
+                Log.d(TAG, "Camera started without LifecycleOwner (service mode)")
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to start camera in service mode", e)
                 _frameFlow.value = null
             }
         }, ContextCompat.getMainExecutor(context))
+    }
+
+    /**
+     * 自定义 LifecycleOwner，用于 Service 场景
+     * 手动控制生命周期状态，始终保持 RESUMED
+     */
+    private class ServiceLifecycleOwner : LifecycleOwner {
+        private val lifecycleRegistry = LifecycleRegistry(this)
+        override val lifecycle: Lifecycle = lifecycleRegistry
+
+        fun handleLifecycleEvent(event: Lifecycle.Event) {
+            lifecycleRegistry.handleLifecycleEvent(event)
+        }
     }
 
     /**
@@ -136,6 +164,9 @@ class CameraManager(private val context: Context) {
     fun stopCamera() {
         cameraProvider?.unbindAll()
         cameraExecutor?.shutdown()
+        // 销毁 Service LifecycleOwner
+        serviceLifecycleOwner?.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+        serviceLifecycleOwner = null
         cameraProvider = null
         imageAnalysis = null
         cameraExecutor = null

@@ -146,36 +146,40 @@ fun MonitorScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // 当日统计
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = "当日统计",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    StatItem(title = "在岗时长", value = formatDuration(uiState.dailySummary?.presentDuration))
+                    StatItem(title = "离岗时长", value = formatDuration(uiState.dailySummary?.absentDuration))
+                    StatItem(title = "离岗次数", value = uiState.dailySummary?.absentCount?.toString() ?: "-")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 运行信息
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             StatCard(title = "帧数", value = uiState.frameCount.toString())
             StatCard(title = "推理(ms)", value = uiState.avgInferenceTimeMs.toString())
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            StatCard(title = "检测人数", value = uiState.detectionCount.toString())
-            StatCard(title = "状态", value = when (uiState.currentState) {
-                MonitorState.PRESENT -> "在岗"
-                MonitorState.ABSENT -> "离岗"
-                MonitorState.UNKNOWN -> "未知"
-            })
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            StatCard(title = "离岗次数", value = uiState.dailySummary?.absentCount?.toString() ?: "-")
-            StatCard(title = "在岗时长", value = formatDuration(uiState.dailySummary?.presentDuration))
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -284,5 +288,23 @@ fun StatCard(title: String, value: String) {
                 fontWeight = FontWeight.Bold
             )
         }
+    }
+}
+
+@Composable
+fun StatItem(title: String, value: String) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
     }
 }

@@ -15,6 +15,7 @@
 | V1.8 | 2026-07-21 | T-04 性能优化任务跳过（暂不影响功能） |
 | V1.9 | 2026-07-21 | T-05~T-08 实机验证通过 |
 | V2.0 | 2026-07-21 | T-09 实机验证通过；状态机阈值改为 15 帧；修复预览旋转和历史数据问题 |
+| V2.1 | 2026-07-21 | T-10 实机验证通过；前台服务后台持续监测、WakeLock、START_STICKY |
 
 ---
 
@@ -33,7 +34,7 @@
 | T-07 | 实现 StateEvent 数据模型与 Room 数据库 | Data/Room | T-02 | 1. StateEvent 实体：id/timestamp/fromState/toState/confidence<br>2. StateEventDao：insert/queryByDate<br>3. 数据库创建成功，CRUD 测试通过 | ✅ 已完成 |
 | T-08 | 实现 StateEventRepository | Domain/Repository | T-07 | 1. saveEvent(event) 保存成功<br>2. getEventsByDate(date) 返回当日事件列表<br>3. 使用 Flow 或 suspend 函数 | ✅ 已完成 |
 | T-09 | 实现 MonitorViewModel | Presentation/ViewModel | T-06, T-08 | 1. UiState 包含：currentState(DailySummary)<br>2. startMonitoring() 启动监测<br>3. stopMonitoring() 停止监测<br>4. 状态变化时 UiState 自动更新<br>5. 统计数据计算正确（在岗时长/离岗时长/离岗次数） | ✅ 已完成 |
-| T-10 | 实现后台保活 | Service | T-02 | 1. Foreground Service 启动，通知栏显示"监测中"<br>2. WakeLock 保持 CPU 运行<br>3. 屏幕关闭后服务继续运行<br>4. 异常退出后自动重启<br>5. 连续运行 8 小时不被杀 | 待开始 |
+| T-10 | 实现后台保活 | Service | T-02 | 1. Foreground Service 启动，通知栏显示"监测中"<br>2. WakeLock 保持 CPU 运行<br>3. 屏幕关闭后服务继续运行<br>4. 异常退出后自动重启<br>5. 连续运行 8 小时不被杀 | ✅ 已完成<br>⚠️ 8小时长期运行待验证 |
 
 ### P1 - 重要任务
 

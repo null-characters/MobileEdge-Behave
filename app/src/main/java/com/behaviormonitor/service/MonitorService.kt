@@ -177,11 +177,20 @@ class MonitorService : android.app.Service() {
             }
         }
 
-        // 监听当日事件计算统计
+        // 监听当日事件 + 定时刷新统计
         summaryJob = serviceScope.launch(Dispatchers.IO) {
-            stateEventRepository.getEventsByDate(dateFormat.format(Date())).collectLatest { events ->
-                val summary = calculateSummary(events)
+            // 先收集事件列表
+            var cachedEvents = emptyList<StateEvent>()
+            val eventsJob = launch {
+                stateEventRepository.getEventsByDate(dateFormat.format(Date())).collectLatest { events ->
+                    cachedEvents = events
+                }
+            }
+            // 每秒用最新时间重算统计（当前状态的时长持续增长）
+            while (true) {
+                val summary = calculateSummary(cachedEvents)
                 _serviceState.value = _serviceState.value.copy(dailySummary = summary)
+                kotlinx.coroutines.delay(1000)
             }
         }
     }
